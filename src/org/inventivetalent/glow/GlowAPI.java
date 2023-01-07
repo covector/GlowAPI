@@ -318,7 +318,7 @@ public class GlowAPI implements Listener {
         PURPLE("d"),
         YELLOW("e"),
         WHITE("f"),
-        NONE("");
+        NONE("r");
 
         final ChatColor chatColor;
         final String colorCode;
