@@ -25,7 +25,7 @@ public class GlowAPI implements Listener {
 
     static {
         try {
-            CHAT_FORMATTING = Class.forName("net.minecraft.ChatFormatting");
+            CHAT_FORMATTING = Class.forName("net.minecraft.EnumChatFormat");
         } catch (ClassNotFoundException e) {
             throw new RuntimeException(e);
         }
