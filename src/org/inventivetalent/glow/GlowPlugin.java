@@ -4,14 +4,13 @@ import org.bstats.bukkit.MetricsLite;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.inventivetalent.packetlistener.PacketListenerAPI;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.Set;
 
+@SuppressWarnings("unused")
 public class GlowPlugin extends JavaPlugin {
-
     static final Set<String> VALID_VISIBILITY = Set.of("always", "never", "hideForOtherTeams", "hideForOwnTeam");
     static final Set<String> VALID_COLLISION = Set.of("always", "never", "pushOtherTeams", "pushOwnTeam");
 
@@ -21,21 +20,14 @@ public class GlowPlugin extends JavaPlugin {
     @Override
     public void onLoad() {
         instance = this;
-        glowAPI = new GlowAPI(this);
+        glowAPI = new GlowAPI();
         loadDefaults();
     }
 
     @Override
     public void onEnable() {
         Bukkit.getPluginManager().registerEvents(glowAPI, this);
-        PacketListenerAPI.addPacketHandler(glowAPI);
-
         new MetricsLite(this, 2190);
-    }
-
-    @Override
-    public void onDisable() {
-        PacketListenerAPI.removePacketHandler(glowAPI);
     }
 
     private void loadDefaults() {
@@ -43,7 +35,7 @@ public class GlowPlugin extends JavaPlugin {
         File dataFolder = getDataFolder();
 
         if (!dataFolder.exists()) {
-            dataFolder.mkdirs();
+            assert dataFolder.mkdirs();
 
             // Fill the configuration with current values
             configuration = getConfig();

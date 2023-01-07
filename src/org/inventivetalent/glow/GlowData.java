@@ -6,8 +6,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 public class GlowData {
-
-	//Maps player-UUID to Color
+	// Maps player-UUID to Color
 	public Map<UUID, GlowAPI.Color> colorMap = new HashMap<>();
 
 	@Override
