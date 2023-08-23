@@ -4,16 +4,27 @@ import com.comphenix.protocol.PacketType;
 import com.comphenix.protocol.ProtocolLibrary;
 import com.comphenix.protocol.events.InternalStructure;
 import com.comphenix.protocol.events.PacketContainer;
+import com.comphenix.protocol.events.PacketAdapter;
+import com.comphenix.protocol.events.PacketListener;
+import com.comphenix.protocol.events.PacketEvent;
 import com.comphenix.protocol.wrappers.WrappedChatComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.scheduler.BukkitRunnable;
+
+import com.comphenix.protocol.wrappers.WrappedDataWatcher;
+import com.comphenix.protocol.wrappers.WrappedWatchableObject;
+import com.comphenix.protocol.wrappers.WrappedDataWatcher.Registry;
+import com.comphenix.protocol.wrappers.WrappedDataWatcher.Serializer;
+import com.comphenix.protocol.wrappers.WrappedDataValue;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.*;
@@ -89,7 +100,8 @@ public class GlowAPI implements Listener {
         }
         if (!receiver.isOnline()) return;
 
-        entity.setGlowing(true);
+        // entity.setGlowing(true);
+        sendGlowPacket(entity, receiver, glowing);
         if (oldColor != null && oldColor != Color.NONE/*We never add to NONE, so no need to remove*/) {
             sendTeamPacket(entity, oldColor/*use the old color to remove the player from its team*/, false, false, tagVisibility, push, receiver);
         }
@@ -293,7 +305,7 @@ public class GlowAPI implements Listener {
 
         try {
             ProtocolLibrary.getProtocolManager().sendServerPacket(receiver, packet);
-        } catch (InvocationTargetException e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
@@ -350,5 +362,117 @@ public class GlowAPI implements Listener {
                 GlowAPI.setGlowing(event.getPlayer(), null, receiver);
             }
         }
+    }
+
+    private static HashMap<Integer, UUID> glowingEntities = new HashMap<Integer, UUID>();
+
+    public static void sendGlowPacket(Entity target, Player player, boolean glow) {
+        PacketContainer packet = ProtocolLibrary.getProtocolManager().createPacket(PacketType.Play.Server.ENTITY_METADATA);
+        packet.getIntegers().write(0, target.getEntityId()); //Set packet's entity id
+
+        glowingEntities.remove(target.getEntityId());
+        if (glow) {
+            glowingEntities.put(target.getEntityId(), target.getUniqueId());
+        }
+        
+        // doesnt work for 1.20
+        // Serializer serializer = Registry.get(Byte.class); //Found this through google, needed for some stupid reason
+        // List<WrappedWatchableObject> dataValues = new ArrayList<>();
+        // dataValues.add(new WrappedWatchableObject(new WrappedDataWatcher.WrappedDataWatcherObject(0, serializer), (byte) (0x40))); //Add the glowing value to the data watcher
+        // packet.getWatchableCollectionModifier().write(0, dataValues); //Make the packet's datawatcher the one we created
+
+        byte value = glow ? (byte) (0x40) : (byte) (0);
+        if (target instanceof LivingEntity) {
+            LivingEntity livingEntity = (LivingEntity) target;
+            if (livingEntity.isInvisible()) { // scuffed invisibility check
+                value |= 0x20;
+            }
+        }
+
+        Serializer serializer = Registry.get(Byte.class);
+        List<WrappedDataValue> dataValues = new ArrayList<>();
+        dataValues.add(new WrappedDataValue(0, serializer, value));
+        packet.getDataValueCollectionModifier().write(0, dataValues);
+        try {
+            ProtocolLibrary.getProtocolManager().sendServerPacket(player, packet);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static BukkitRunnable memoryCleaner = new BukkitRunnable() {
+        @Override
+        public void run() {
+            cleanMemory();
+        }
+    };
+
+    public static int cleanMemory() {
+        ArrayList<Integer> toRemove = new ArrayList<>();
+        int count = 0;
+        for (int entityId: glowingEntities.keySet()) {
+            Entity entity = Bukkit.getEntity(glowingEntities.get(entityId));
+            if (entity == null || entity.isDead()) {
+                toRemove.add(entityId);
+                count++;
+            }
+        }
+        for (int entityId: toRemove) {
+            glowingEntities.remove(entityId);
+        }
+        return count;
+    }
+
+    private PacketListener packetListener;
+
+    public void registerPacketListener() {
+        ProtocolLibrary.getProtocolManager().addPacketListener(packetListener = new PacketAdapter(GlowPlugin.instance, PacketType.Play.Server.ENTITY_METADATA) {
+            @Override
+            public void onPacketSending(PacketEvent event) {
+                if (event.getPacketType() == PacketType.Play.Server.ENTITY_METADATA) {
+                    PacketContainer packet = event.getPacket();
+                    Player receiver = event.getPlayer();
+                    int entityId = packet.getIntegers().read(0);
+
+                    UUID uuid = glowingEntities.get(entityId);
+                    if (uuid == null) {
+                        return;
+                    }
+                    if (dataMap.get(uuid) == null) {
+                        // no longer glowing
+                        glowingEntities.remove(entityId);
+                        return;
+                    }
+                    if (dataMap.get(uuid).colorMap.get(receiver.getUniqueId()) == null) {
+                        return;
+                    }
+
+                    packet = event.getPacket().deepClone();
+                    event.setPacket(packet);
+                    Serializer serializer = Registry.get(Byte.class);
+                    List<WrappedDataValue> dataValues = packet.getDataValueCollectionModifier().read(0);
+                    for (WrappedDataValue dataValue : dataValues) {
+                        if (dataValue.getValue() == null) {
+                            continue;
+                        }
+                        if (dataValue.getIndex() == 0) {
+                            dataValues.set(0, new WrappedDataValue(0, serializer, (byte) (((byte) (dataValue.getValue())) | 0x40)));
+                            try {
+                                packet.getDataValueCollectionModifier().write(0, dataValues);
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        memoryCleaner.runTaskTimer(GlowPlugin.instance, 1200, 1200);
+    }
+
+    public void unregisterPacketListener() {
+        ProtocolLibrary.getProtocolManager().removePacketListener(packetListener);
+        memoryCleaner.cancel();
     }
 }

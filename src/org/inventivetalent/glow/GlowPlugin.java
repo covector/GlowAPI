@@ -27,7 +27,13 @@ public class GlowPlugin extends JavaPlugin {
     @Override
     public void onEnable() {
         Bukkit.getPluginManager().registerEvents(glowAPI, this);
+        glowAPI.registerPacketListener();
         new MetricsLite(this, 2190);
+    }
+
+    @Override
+    public void onDisable() {
+        glowAPI.unregisterPacketListener();
     }
 
     private void loadDefaults() {
